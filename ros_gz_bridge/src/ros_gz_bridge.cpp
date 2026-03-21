@@ -21,6 +21,7 @@
 
 #include "bridge_handle_ros_to_gz.hpp"
 #include "bridge_handle_gz_to_ros.hpp"
+#include "get_mappings.hpp"
 
 #include <rclcpp/expand_topic_or_service_name.hpp>
 
@@ -47,13 +48,7 @@ RosGzBridge::RosGzBridge(const rclcpp::NodeOptions & options)
   for (const auto & name : names) {
     const auto prefix = "bridges." + name + ".";
 
-    const auto ros_type_name = this->declare_parameter(prefix + "ros_type_name", PARAMETER_STRING);
-    if (ros_type_name.get_type() == PARAMETER_NOT_SET) {
-      RCLCPP_ERROR(
-        this->get_logger(),
-        "Bridge %s does not set required parameter ros_type_name.", name.c_str());
-      continue;
-    }
+    this->declare_parameter(prefix + "ros_type_name", PARAMETER_STRING);
 
     const auto ros_topic_name = this->declare_parameter(prefix + "ros_topic_name", "");
     const auto service_name = this->declare_parameter(prefix + "service_name", "");
@@ -76,13 +71,9 @@ RosGzBridge::RosGzBridge(const rclcpp::NodeOptions & options)
           "Bridge %s does not set required parameter gz_topic_name.", name.c_str());
         continue;
       }
-      const auto gz_type_name = this->declare_parameter(prefix + "gz_type_name", PARAMETER_STRING);
-      if (gz_type_name.get_type() == PARAMETER_NOT_SET) {
-        RCLCPP_ERROR(
-          this->get_logger(),
-          "Bridge %s does not set required parameter gz_type_name.", name.c_str());
-        continue;
-      }
+
+      this->declare_parameter(prefix + "gz_type_name", PARAMETER_STRING);
+
       this->declare_parameter(prefix + "direction", "BIDIRECTIONAL");
       // Queue sizes default to 10 if qos_profile is not set.
       // If it is defined, they are applied only if they are non-negative.
@@ -144,7 +135,7 @@ void RosGzBridge::spin()
           this->add_bridge(entry);
         } else {
           this->add_service_bridge(
-            entry.ros_type_name,
+            entry.ros_type_name.value(),
             entry.gz_req_type_name,
             entry.gz_rep_type_name,
             entry.service_name);
@@ -173,6 +164,18 @@ void RosGzBridge::spin()
             "Bridge %s defines unknown direction %s.",
             name.c_str(), directionStr.c_str());
           continue;
+        }
+
+        const auto ros_type_name_str = this->get_parameter(prefix + "ros_type_name").as_string();
+        std::optional<std::string> ros_type_name;
+        if (!ros_type_name_str.empty()) {
+          ros_type_name = ros_type_name_str;
+        }
+
+        const auto gz_type_name_str = this->get_parameter(prefix + "gz_type_name").as_string();
+        std::optional<std::string> gz_type_name;
+        if (!gz_type_name_str.empty()) {
+          gz_type_name = gz_type_name_str;
         }
 
         const auto qos_profile_str = this->get_parameter(prefix + "qos_profile").as_string();
@@ -206,9 +209,9 @@ void RosGzBridge::spin()
         }
 
         BridgeConfig config {
-          this->get_parameter(prefix + "ros_type_name").as_string(),
+          ros_type_name,
           this->get_parameter(prefix + "ros_topic_name").as_string(),
-          this->get_parameter(prefix + "gz_type_name").as_string(),
+          gz_type_name,
           this->get_parameter(prefix + "gz_topic_name").as_string(),
           direction,
           pub_queue_size,
@@ -250,6 +253,13 @@ void RosGzBridge::add_bridge(const BridgeConfig & input_config)
     this->get_parameter("lazy", node_lazy);
     config.is_lazy = node_lazy;
   }
+
+  if (!complete_bridge_type(config)) {
+    return;
+  }
+  const auto & ros_type_name = config.ros_type_name.value();
+  const auto & gz_type_name = config.gz_type_name.value();
+
   bool gz_to_ros = false;
   bool ros_to_gz = false;
 
@@ -271,8 +281,8 @@ void RosGzBridge::add_bridge(const BridgeConfig & input_config)
       RCLCPP_INFO(
         this->get_logger(),
         "Creating GZ->ROS Bridge: [%s (%s) -> %s (%s)] (Lazy %d)",
-        config.gz_topic_name.c_str(), config.gz_type_name.c_str(),
-        config.ros_topic_name.c_str(), config.ros_type_name.c_str(),
+        config.gz_topic_name.c_str(), gz_type_name.c_str(),
+        config.ros_topic_name.c_str(), ros_type_name.c_str(),
         config.is_lazy.value_or(kDefaultLazy));
       handles_.push_back(
         std::make_unique<ros_gz_bridge::BridgeHandleGzToRos>(
@@ -286,8 +296,8 @@ void RosGzBridge::add_bridge(const BridgeConfig & input_config)
       RCLCPP_INFO(
         this->get_logger(),
         "Creating ROS->GZ Bridge: [%s (%s) -> %s (%s)] (Lazy %d)",
-        config.ros_topic_name.c_str(), config.ros_type_name.c_str(),
-        config.gz_topic_name.c_str(), config.gz_type_name.c_str(),
+        config.ros_topic_name.c_str(), ros_type_name.c_str(),
+        config.gz_topic_name.c_str(), gz_type_name.c_str(),
         config.is_lazy.value_or(kDefaultLazy));
       handles_.push_back(
         std::make_unique<ros_gz_bridge::BridgeHandleRosToGz>(
@@ -302,9 +312,9 @@ void RosGzBridge::add_bridge(const BridgeConfig & input_config)
       "Failed to create a bridge for topic [%s] with ROS2 type [%s] "
       "to topic [%s] with Gazebo Transport type [%s]: %s",
       config.ros_topic_name.c_str(),
-      config.ros_type_name.c_str(),
+      ros_type_name.c_str(),
       config.gz_topic_name.c_str(),
-      config.gz_type_name.c_str(),
+      gz_type_name.c_str(),
       _e.what());
   }
 }
@@ -334,6 +344,77 @@ void RosGzBridge::add_service_bridge(
   }
 }
 
+bool RosGzBridge::complete_bridge_type(BridgeConfig & config)
+{
+  const bool has_ros_type =
+    config.ros_type_name.has_value() && !config.ros_type_name->empty();
+  const bool has_gz_type =
+    config.gz_type_name.has_value() && !config.gz_type_name->empty();
+  
+  if (has_ros_type && has_gz_type) {
+    return true;
+  }
+
+  if (!has_ros_type && !has_gz_type) {
+    RCLCPP_ERROR(
+      this->get_logger(),
+      "Bridge for ROS topic [%s] and Gazebo topic [%s] must specify at least "
+      "one of ros_type_name or gz_type_name.",
+      config.ros_topic_name.c_str(),
+      config.gz_topic_name.c_str());
+    return false;
+  }
+
+  if (has_ros_type) {
+    std::vector<std::string> possible_gz_types;
+    if (get_ros_to_gz_mapping(*config.ros_type_name, possible_gz_types)) {
+      if (possible_gz_types.size() > 1) {
+        RCLCPP_ERROR(
+          this->get_logger(),
+          "Multiple possible Gazebo types for ROS type [%s] for bridge [%s - %s]. "
+          "Please specify the Gazebo type explicitly.",
+          config.ros_type_name->c_str(),
+          config.ros_topic_name.c_str(),
+          config.gz_topic_name.c_str());
+        return false;
+      }
+      config.gz_type_name = possible_gz_types[0];
+    } else {
+      RCLCPP_ERROR(
+        this->get_logger(),
+        "No Gazebo type mapping found for ROS type [%s] for bridge [%s - %s].",
+        config.ros_type_name->c_str(),
+        config.ros_topic_name.c_str(),
+        config.gz_topic_name.c_str());
+      return false;
+    }
+  }
+  else if (has_gz_type) {
+    std::vector<std::string> possible_ros_types;
+    if (get_gz_to_ros_mapping(*config.gz_type_name, possible_ros_types)) {
+      if (possible_ros_types.size() > 1) {
+        RCLCPP_ERROR(
+          this->get_logger(),
+          "Multiple possible ROS types for Gazebo type [%s] for bridge [%s - %s]. "
+          "Please specify the ROS type explicitly.",
+          config.gz_type_name->c_str(),
+          config.ros_topic_name.c_str(),
+          config.gz_topic_name.c_str());
+        return false;
+      }
+      config.ros_type_name = possible_ros_types[0];
+    } else {
+      RCLCPP_ERROR(
+        this->get_logger(),
+        "No ROS type mapping found for Gazebo type [%s] for bridge [%s - %s].",
+        config.gz_type_name->c_str(),
+        config.ros_topic_name.c_str(),
+        config.gz_topic_name.c_str());
+      return false;
+    }
+  }
+  return true;
+}
 }  // namespace ros_gz_bridge
 
 #include "rclcpp_components/register_node_macro.hpp"

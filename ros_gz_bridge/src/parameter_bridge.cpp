@@ -128,7 +128,7 @@ int main(int argc, char * argv[])
 
     config.ros_type_name = arg.substr(0, delimPos);
     arg.erase(0, delimPos + delim.size());
-    if (config.ros_type_name.find("/srv/") != std::string::npos) {
+    if (config.ros_type_name.value().find("/srv/") != std::string::npos) {
       std::string gz_req_type_name;
       std::string gz_rep_type_name;
       if (config.direction == BridgeDirection::ROS_TO_GZ ||
@@ -149,7 +149,7 @@ int main(int argc, char * argv[])
       }
       try {
         bridge_node->add_service_bridge(
-          config.ros_type_name,
+          config.ros_type_name.value(),
           gz_req_type_name,
           gz_rep_type_name,
           config.ros_topic_name);

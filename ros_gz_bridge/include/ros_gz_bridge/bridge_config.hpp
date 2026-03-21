@@ -54,14 +54,14 @@ rclcpp::QoS parseQoS(const std::string & qos_profile);
 struct BridgeConfig
 {
   /// \brief The ROS message type (eg std_msgs/msg/String)
-  std::string ros_type_name;
+  std::optional<std::string> ros_type_name;
 
   /// \brief The ROS topic name to bridge
   std::string ros_topic_name;
 
   /// \brief The Gazebo message type (eg ignition.msgs.String)
   /// Used with topic bridges
-  std::string gz_type_name;
+  std::optional<std::string> gz_type_name;
 
   /// \brief The Gazebo topic name to bridge
   std::string gz_topic_name;

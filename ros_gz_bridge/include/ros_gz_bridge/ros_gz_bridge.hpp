@@ -51,6 +51,12 @@ public:
     const std::string & gz_req_type_name,
     const std::string & gz_rep_type_name,
     const std::string & service_name);
+  
+  /// \brief Complete a bridge configuration when one message type is missing
+  /// \param[in] config Bridge configuration to complete
+  /// \return True if the missing type was successfully determined or both
+  /// types were already provided, false otherwise
+  bool complete_bridge_type(BridgeConfig & config);
 
 protected:
   /// \brief Periodic callback to check connectivity and liveliness

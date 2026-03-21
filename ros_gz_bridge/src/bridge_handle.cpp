@@ -28,7 +28,7 @@ BridgeHandle::BridgeHandle(
 : ros_node_(ros_node),
   gz_node_(gz_node),
   config_(config),
-  factory_(get_factory(config.ros_type_name, config.gz_type_name))
+  factory_(get_factory(config.ros_type_name.value(), config.gz_type_name.value()))
 {
 }
 
