@@ -51,9 +51,39 @@ public:
     const std::string & gz_req_type_name,
     const std::string & gz_rep_type_name,
     const std::string & service_name);
-  
+
+  /// \brief Get all unique ROS message types currently observed on the topic.
+  /// \param[in] topic_name Name of the ROS topic.
+  /// \return A list of unique message type names. Returns empty if the topic
+  /// is not found or no types are available.
+  std::vector<std::string> get_ros_topic_types(const std::string & topic_name) const;
+
+  /// \brief Get all unique Gazebo message types currently observed on the topic.
+  /// \param[in] topic_name Name of the Gazebo topic.
+  /// \return A list of unique message type names collected from publishers
+  /// and subscribers. Returns empty if no information is available.
+  std::vector<std::string> get_gz_topic_types(const std::string & topic_name) const;
+
+  /// \brief Infer the Gazebo message type from a given ROS message type.
+  /// \param[in,out] config Bridge configuration to complete.
+  /// \return True if a unique Gazebo type is resolved and written to config,
+  /// false otherwise.
+  bool complete_gz_type_from_ros_type(BridgeConfig & config);
+
+  /// \brief Infer the ROS message type from a given Gazebo message type.
+  /// \param[in,out] config Bridge configuration to complete.
+  /// \return True if a unique ROS type is resolved and written to config,
+  /// false otherwise.
+  bool complete_ros_type_from_gz_type(BridgeConfig & config);
+
+  /// \brief Infer both ROS and Gazebo message types using runtime topic information.
+  /// \param[in,out] config Bridge configuration to complete.
+  /// \return True if a unique (ROS, Gazebo) type pair is resolved,
+  /// false otherwise.
+  bool complete_types_from_runtime_topics(BridgeConfig & config);
+
   /// \brief Complete a bridge configuration when one message type is missing
-  /// \param[in] config Bridge configuration to complete
+  /// \param[in,out] config Bridge configuration to complete
   /// \return True if the missing type was successfully determined or both
   /// types were already provided, false otherwise
   bool complete_bridge_type(BridgeConfig & config);
