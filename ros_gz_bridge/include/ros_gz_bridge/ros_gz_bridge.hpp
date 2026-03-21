@@ -105,6 +105,9 @@ public:
   TypeResolutionResult complete_bridge_type(BridgeConfig & config);
 
 protected:
+  /// \brief Periodic callback to check for changes in the ROS graph
+  void check_ros_graph_event();
+
   /// \brief Periodic callback to check connectivity and liveliness
   void spin();
 
@@ -117,6 +120,15 @@ protected:
 
   /// \brief List of bridged ROS services
   std::vector<rclcpp::ServiceBase::SharedPtr> services_;
+
+  /// \brief Callback group for timers
+  rclcpp::CallbackGroup::SharedPtr callback_group_;
+
+  /// \brief Event triggered when the ROS graph changes
+  rclcpp::Event::SharedPtr ros_graph_event_;
+
+  /// \brief Timer to periodically check the ROS graph event
+  rclcpp::TimerBase::SharedPtr ros_graph_timer_;
 
   /// \brief Timer to control periodic callback
   rclcpp::TimerBase::SharedPtr heartbeat_timer_;

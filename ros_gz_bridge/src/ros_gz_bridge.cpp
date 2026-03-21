@@ -34,6 +34,7 @@ RosGzBridge::RosGzBridge(const rclcpp::NodeOptions & options)
   gz_node_ = std::make_shared<gz::transport::Node>();
 
   this->declare_parameter<int>("subscription_heartbeat", 1000);
+  this->declare_parameter<int>("ros graph check interval", 200);
   this->declare_parameter<std::string>("config_file", "");
   this->declare_parameter<bool>("lazy", kDefaultLazy);
   this->declare_parameter<bool>("expand_gz_topic_names", false);
@@ -102,13 +103,49 @@ RosGzBridge::RosGzBridge(const rclcpp::NodeOptions & options)
     }
   }
 
+  ros_graph_event_ = this->get_graph_event();
+  
+  callback_group_ = this->create_callback_group(
+    rclcpp::CallbackGroupType::MutuallyExclusive);
+
+  int ros_graph_check_interval;
+  this->get_parameter("ros graph check interval", ros_graph_check_interval);
+  ros_graph_timer_ = rclcpp::create_wall_timer(
+    std::chrono::milliseconds(ros_graph_check_interval),
+    std::bind(&RosGzBridge::check_ros_graph_event, this),
+    callback_group_,
+    this->get_node_base_interface().get(),
+    this->get_node_timers_interface().get());
+
   int heartbeat;
   this->get_parameter("subscription_heartbeat", heartbeat);
-  heartbeat_timer_ = this->create_wall_timer(
+  heartbeat_timer_ = rclcpp::create_wall_timer(
     std::chrono::milliseconds(heartbeat),
-    std::bind(&RosGzBridge::spin, this));
-  
+    std::bind(&RosGzBridge::spin, this),
+    callback_group_,
+    this->get_node_base_interface().get(),
+    this->get_node_timers_interface().get());
+
   config_loaded_ = false;
+}
+
+void RosGzBridge::check_ros_graph_event()
+{
+  if (pending_bridges_.empty()) {
+    return;
+  }
+
+  if (!ros_graph_event_)
+  {
+    RCLCPP_ERROR(this->get_logger(), "Failed to get ROS graph event");
+    return;
+  }
+
+  if (ros_graph_event_->check_and_clear())
+  {
+    RCLCPP_DEBUG(this->get_logger(), "ROS graph event triggered, checking pending bridges...");
+    this->process_pending_bridges();
+  }
 }
 
 void RosGzBridge::spin()
