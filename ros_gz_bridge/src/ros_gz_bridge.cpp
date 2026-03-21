@@ -107,11 +107,13 @@ RosGzBridge::RosGzBridge(const rclcpp::NodeOptions & options)
   heartbeat_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(heartbeat),
     std::bind(&RosGzBridge::spin, this));
+  
+  config_loaded_ = false;
 }
 
 void RosGzBridge::spin()
 {
-  if (handles_.empty()) {
+  if (!config_loaded_) {
     std::string config_file;
     this->get_parameter("config_file", config_file);
     bool expand_names;
@@ -228,7 +230,7 @@ void RosGzBridge::spin()
             config.gz_topic_name, ros_node_name, ros_ns, false);
         }
 
-        this->add_bridge(config);
+        this->register_bridge(config);
       } else {
         this->add_service_bridge(
           this->get_parameter(prefix + "ros_type_name").as_string(),
@@ -237,9 +239,52 @@ void RosGzBridge::spin()
           this->get_parameter(prefix + "service_name").as_string());
       }
     }
+    config_loaded_ = true;
   }
+
+  this->process_pending_bridges();
+
   for (auto & bridge : handles_) {
     bridge->Spin();
+  }
+}
+
+void RosGzBridge::process_pending_bridges()
+{
+  auto it = pending_bridges_.begin();
+  while (it != pending_bridges_.end()) {
+    auto result = complete_bridge_type(*it);
+    if (result == TypeResolutionResult::RESOLVED) {
+      RCLCPP_INFO(
+        this->get_logger(),
+        "Pending bridge for ROS topic [%s] and GZ topic [%s] is now resolved. Starting the bridge.",
+        it->ros_topic_name.c_str(), it->gz_topic_name.c_str());
+      this->add_bridge(*it);
+      it = pending_bridges_.erase(it);
+    } else if (result == TypeResolutionResult::FAILED) {
+      RCLCPP_ERROR(
+        this->get_logger(),
+        "Pending bridge for ROS topic [%s] and GZ topic [%s] failed to resolve. Removing from pending list.",
+        it->ros_topic_name.c_str(), it->gz_topic_name.c_str());
+      it = pending_bridges_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
+void RosGzBridge::register_bridge(BridgeConfig & input_config)
+{
+  auto result = complete_bridge_type(input_config);
+
+  if (result == TypeResolutionResult::RESOLVED)
+  {
+    this->add_bridge(input_config);
+  }
+  else if (result == TypeResolutionResult::PENDING)
+  {
+    pending_bridges_.push_back(input_config);
+    return;
   }
 }
 
@@ -254,9 +299,6 @@ void RosGzBridge::add_bridge(const BridgeConfig & input_config)
     config.is_lazy = node_lazy;
   }
 
-  if (!complete_bridge_type(config)) {
-    return;
-  }
   const auto & ros_type_name = config.ros_type_name.value();
   const auto & gz_type_name = config.gz_type_name.value();
 
@@ -401,7 +443,7 @@ std::vector<std::string> RosGzBridge::get_gz_topic_types(
   return types;
 }
 
-bool RosGzBridge::complete_gz_type_from_ros_type(BridgeConfig & config)
+TypeResolutionResult RosGzBridge::complete_gz_type_from_ros_type(BridgeConfig & config)
 {
   std::vector<std::string> possible_gz_types;
   if (!get_ros_to_gz_mapping(config.ros_type_name.value(), possible_gz_types)) {
@@ -411,7 +453,7 @@ bool RosGzBridge::complete_gz_type_from_ros_type(BridgeConfig & config)
       config.ros_type_name->c_str(),
       config.ros_topic_name.c_str(),
       config.gz_topic_name.c_str());
-    return false;
+    return TypeResolutionResult::FAILED;
   }
 
   if (possible_gz_types.size() == 1) {
@@ -423,12 +465,12 @@ bool RosGzBridge::complete_gz_type_from_ros_type(BridgeConfig & config)
       config.ros_type_name->c_str(),
       config.ros_topic_name.c_str(),
       config.gz_topic_name.c_str());
-    return true;
+    return TypeResolutionResult::RESOLVED;
   }
 
   std::vector<std::string> gz_types_on_topic = get_gz_topic_types(config.gz_topic_name);
   if (gz_types_on_topic.empty()) {
-    RCLCPP_ERROR(
+    RCLCPP_WARN(
       this->get_logger(),
       "Multiple possible Gazebo types for ROS type [%s] for bridge [%s -> %s], but no "
       "publishers or subscribers found on Gazebo topic [%s] to help disambiguate.",
@@ -436,7 +478,7 @@ bool RosGzBridge::complete_gz_type_from_ros_type(BridgeConfig & config)
       config.ros_topic_name.c_str(),
       config.gz_topic_name.c_str(),
       config.gz_topic_name.c_str());
-    return false;
+    return TypeResolutionResult::PENDING;
   }
 
   std::vector<std::string> matched_gz_types;
@@ -447,7 +489,7 @@ bool RosGzBridge::complete_gz_type_from_ros_type(BridgeConfig & config)
   }
 
   if (matched_gz_types.empty()) {
-    RCLCPP_ERROR(
+    RCLCPP_WARN(
       this->get_logger(),
       "Multiple possible Gazebo types for ROS type [%s] for bridge [%s -> %s], but no "
       "matching types found on Gazebo topic [%s] to help disambiguate.",
@@ -455,7 +497,7 @@ bool RosGzBridge::complete_gz_type_from_ros_type(BridgeConfig & config)
       config.ros_topic_name.c_str(),
       config.gz_topic_name.c_str(),
       config.gz_topic_name.c_str());
-    return false;
+    return TypeResolutionResult::PENDING;
   }
   else if (matched_gz_types.size() == 1) {
     config.gz_type_name = matched_gz_types[0];
@@ -466,7 +508,7 @@ bool RosGzBridge::complete_gz_type_from_ros_type(BridgeConfig & config)
       config.ros_type_name->c_str(),
       config.ros_topic_name.c_str(),
       config.gz_topic_name.c_str());
-    return true;
+    return TypeResolutionResult::RESOLVED;
   }
 
   RCLCPP_ERROR(
@@ -478,12 +520,11 @@ bool RosGzBridge::complete_gz_type_from_ros_type(BridgeConfig & config)
     config.ros_topic_name.c_str(),
     config.gz_topic_name.c_str(),
     matched_gz_types.size());
-
-    return false;
+    return TypeResolutionResult::FAILED;
 }
 
 
-bool RosGzBridge::complete_ros_type_from_gz_type(BridgeConfig & config)
+TypeResolutionResult RosGzBridge::complete_ros_type_from_gz_type(BridgeConfig & config)
 {
   std::vector<std::string> possible_ros_types;
   if (!get_gz_to_ros_mapping(config.gz_type_name.value(), possible_ros_types)) {
@@ -493,7 +534,7 @@ bool RosGzBridge::complete_ros_type_from_gz_type(BridgeConfig & config)
       config.gz_type_name->c_str(),
       config.ros_topic_name.c_str(),
       config.gz_topic_name.c_str());
-    return false;
+    return TypeResolutionResult::FAILED;
   }
 
   if (possible_ros_types.size() == 1) {
@@ -505,12 +546,12 @@ bool RosGzBridge::complete_ros_type_from_gz_type(BridgeConfig & config)
       config.gz_type_name->c_str(),
       config.ros_topic_name.c_str(),
       config.gz_topic_name.c_str());
-    return true;
+    return TypeResolutionResult::RESOLVED;
   }
 
   std::vector<std::string> ros_types_on_topic = get_ros_topic_types(config.ros_topic_name);
   if (ros_types_on_topic.empty()) {
-    RCLCPP_ERROR(
+    RCLCPP_WARN(
       this->get_logger(),
       "Multiple possible ROS types for Gazebo type [%s] for bridge [%s -> %s], but no "
       "publishers or subscribers found on ROS topic [%s] to help disambiguate.",
@@ -518,7 +559,7 @@ bool RosGzBridge::complete_ros_type_from_gz_type(BridgeConfig & config)
       config.ros_topic_name.c_str(),
       config.gz_topic_name.c_str(),
       config.ros_topic_name.c_str());
-    return false;
+    return TypeResolutionResult::PENDING;
   }
 
   std::vector<std::string> matched_ros_types;
@@ -529,7 +570,7 @@ bool RosGzBridge::complete_ros_type_from_gz_type(BridgeConfig & config)
   }
 
   if (matched_ros_types.empty()) {
-    RCLCPP_ERROR(
+    RCLCPP_WARN(
       this->get_logger(),
       "Multiple possible ROS types for Gazebo type [%s] for bridge [%s -> %s], but no "
       "matching types found on ROS topic [%s] to help disambiguate.",
@@ -537,7 +578,7 @@ bool RosGzBridge::complete_ros_type_from_gz_type(BridgeConfig & config)
       config.ros_topic_name.c_str(),
       config.gz_topic_name.c_str(),
       config.ros_topic_name.c_str());
-    return false;
+    return TypeResolutionResult::PENDING;
   }
   else if (matched_ros_types.size() == 1) {
     config.ros_type_name = matched_ros_types[0];
@@ -548,7 +589,7 @@ bool RosGzBridge::complete_ros_type_from_gz_type(BridgeConfig & config)
       config.gz_type_name->c_str(),
       config.ros_topic_name.c_str(),
       config.gz_topic_name.c_str());
-    return true;
+    return TypeResolutionResult::RESOLVED;
   }
 
   RCLCPP_ERROR(
@@ -560,18 +601,17 @@ bool RosGzBridge::complete_ros_type_from_gz_type(BridgeConfig & config)
     config.ros_topic_name.c_str(),
     config.gz_topic_name.c_str(),
     matched_ros_types.size());
-
-    return false;
+    return TypeResolutionResult::FAILED;
 }
 
-bool RosGzBridge::complete_types_from_runtime_topics(BridgeConfig & config)
+TypeResolutionResult RosGzBridge::complete_types_from_runtime_topics(BridgeConfig & config)
 {
   std::vector<std::string> ros_types_on_topic = get_ros_topic_types(config.ros_topic_name);
   std::vector<std::string> gz_types_on_topic = get_gz_topic_types(config.gz_topic_name);
 
   // TODO(C88-YQ): 
   if (ros_types_on_topic.empty() || gz_types_on_topic.empty()) {
-    RCLCPP_ERROR(
+    RCLCPP_WARN(
       this->get_logger(),
       "Cannot complete bridge [%s -> %s] because no publishers or subscribers found on "
       "ROS topic [%s] or Gazebo topic [%s].",
@@ -579,7 +619,7 @@ bool RosGzBridge::complete_types_from_runtime_topics(BridgeConfig & config)
       config.gz_topic_name.c_str(),
       config.ros_topic_name.c_str(),
       config.gz_topic_name.c_str());
-    return false;
+    return TypeResolutionResult::PENDING;
   }
 
   std::string matched_ros_type;
@@ -605,7 +645,7 @@ bool RosGzBridge::complete_types_from_runtime_topics(BridgeConfig & config)
   }
 
   if (match_count == 0) {
-    RCLCPP_ERROR(
+    RCLCPP_WARN(
       this->get_logger(),
       "Cannot complete bridge [%s -> %s] because no matching types found on ROS topic [%s] "
       "and Gazebo topic [%s].",
@@ -613,7 +653,7 @@ bool RosGzBridge::complete_types_from_runtime_topics(BridgeConfig & config)
       config.gz_topic_name.c_str(),
       config.ros_topic_name.c_str(),
       config.gz_topic_name.c_str());
-    return false;
+    return TypeResolutionResult::PENDING;
   } else if (match_count == 1) {
     config.ros_type_name = matched_ros_type;
     config.gz_type_name = matched_gz_type;
@@ -624,7 +664,7 @@ bool RosGzBridge::complete_types_from_runtime_topics(BridgeConfig & config)
       config.gz_type_name->c_str(),
       config.ros_topic_name.c_str(),
       config.gz_topic_name.c_str());
-    return true;
+    return TypeResolutionResult::RESOLVED;
   }
 
   RCLCPP_ERROR(
@@ -635,10 +675,10 @@ bool RosGzBridge::complete_types_from_runtime_topics(BridgeConfig & config)
     config.gz_topic_name.c_str(),
     config.ros_topic_name.c_str(),
     config.gz_topic_name.c_str());
-  return false;
+  return TypeResolutionResult::FAILED;
 }
 
-bool RosGzBridge::complete_bridge_type(BridgeConfig & config)
+TypeResolutionResult RosGzBridge::complete_bridge_type(BridgeConfig & config)
 {
   const bool has_ros_type =
     config.ros_type_name.has_value() && !config.ros_type_name->empty();
@@ -646,7 +686,7 @@ bool RosGzBridge::complete_bridge_type(BridgeConfig & config)
     config.gz_type_name.has_value() && !config.gz_type_name->empty();
   
   if (has_ros_type && has_gz_type) {
-    return true;
+    return TypeResolutionResult::RESOLVED;
   }
 
   if (has_ros_type) {

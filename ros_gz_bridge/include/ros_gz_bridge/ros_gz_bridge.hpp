@@ -26,6 +26,19 @@
 
 namespace ros_gz_bridge
 {
+/// \brief Result of attempting to resolve bridge message types
+enum class TypeResolutionResult
+{
+  /// \brief Types were successfully resolved and written to the config
+  RESOLVED,
+
+  /// \brief Insufficient information at the moment; should retry later
+  PENDING,
+
+  /// \brief Resolution is impossible due to conflict or ambiguity
+  FAILED
+};
+
 /// Forward declarations
 class BridgeHandle;
 
@@ -37,9 +50,16 @@ public:
   /// \param[in] options options control creation of the ROS 2 node
   explicit RosGzBridge(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
 
+  /// \brief Register a bridge configuration for type resolution.
+  /// \param[in] config Bridge configuration to register.
+  void register_bridge(BridgeConfig & config);
+
   /// \brief Add a new ROS-GZ bridge to the node
   /// \param[in] config Parameters to control creation of a new bridge
   void add_bridge(const BridgeConfig & config);
+
+  /// \brief Attempt to resolve and create pending bridges.
+  void process_pending_bridges();
 
   /// \brief Create a new ROS-GZ bridge for a service
   /// \param[in] ros_type_name Name of the ROS service (eg ros_gz_interfaces/srv/ControlWorld)
@@ -66,27 +86,23 @@ public:
 
   /// \brief Infer the Gazebo message type from a given ROS message type.
   /// \param[in,out] config Bridge configuration to complete.
-  /// \return True if a unique Gazebo type is resolved and written to config,
-  /// false otherwise.
-  bool complete_gz_type_from_ros_type(BridgeConfig & config);
+  /// \return Resolution result indicating resolved, pending, or failure.
+  TypeResolutionResult complete_gz_type_from_ros_type(BridgeConfig & config);
 
   /// \brief Infer the ROS message type from a given Gazebo message type.
   /// \param[in,out] config Bridge configuration to complete.
-  /// \return True if a unique ROS type is resolved and written to config,
-  /// false otherwise.
-  bool complete_ros_type_from_gz_type(BridgeConfig & config);
+  /// \return Resolution result indicating resolved, pending, or failure.
+  TypeResolutionResult complete_ros_type_from_gz_type(BridgeConfig & config);
 
   /// \brief Infer both ROS and Gazebo message types using runtime topic information.
   /// \param[in,out] config Bridge configuration to complete.
-  /// \return True if a unique (ROS, Gazebo) type pair is resolved,
-  /// false otherwise.
-  bool complete_types_from_runtime_topics(BridgeConfig & config);
+  /// \return Resolution result indicating resolved, pending, or failure.
+  TypeResolutionResult complete_types_from_runtime_topics(BridgeConfig & config);
 
   /// \brief Complete a bridge configuration when one message type is missing
   /// \param[in,out] config Bridge configuration to complete
-  /// \return True if the missing type was successfully determined or both
-  /// types were already provided, false otherwise
-  bool complete_bridge_type(BridgeConfig & config);
+  /// \return Resolution result indicating resolved, pending, or failure.
+  TypeResolutionResult complete_bridge_type(BridgeConfig & config);
 
 protected:
   /// \brief Periodic callback to check connectivity and liveliness
@@ -104,6 +120,12 @@ protected:
 
   /// \brief Timer to control periodic callback
   rclcpp::TimerBase::SharedPtr heartbeat_timer_;
+
+  /// \brief List of bridges waiting for type resolution
+  std::vector<BridgeConfig> pending_bridges_;
+
+  /// \brief Flag to indicate whether the configuration has been loaded
+  bool config_loaded_;
 };
 }  // namespace ros_gz_bridge
 
