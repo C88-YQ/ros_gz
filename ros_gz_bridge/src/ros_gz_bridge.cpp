@@ -16,6 +16,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -41,7 +42,20 @@ RosGzBridge::RosGzBridge(const rclcpp::NodeOptions & options)
   this->declare_parameter<std::string>("override_frame_id", "");
   this->declare_parameter("bridge_names", std::vector<std::string>());
   this->declare_parameter("enable_automated_bridge", false);
+  this->declare_parameter("automated_bridge_exclude_patterns", std::vector<std::string>());
   const auto names = this->get_parameter("bridge_names").as_string_array();
+  const auto exclude_patterns = this->get_parameter("automated_bridge_exclude_patterns").as_string_array();
+
+  for (const auto & pattern : exclude_patterns) {
+    try {
+      automated_bridge_exclude_patterns_.emplace_back(pattern);
+    } catch (const std::regex_error & e) {
+      RCLCPP_ERROR(
+        this->get_logger(),
+        "Invalid regex pattern '%s' in parameter 'automated_bridge_exclude_patterns': %s",
+        pattern.c_str(), e.what());
+    }
+  }
 
   using rclcpp::PARAMETER_STRING;
   using rclcpp::PARAMETER_NOT_SET;
@@ -352,6 +366,11 @@ void RosGzBridge::create_automated_bridges()
   gz_node_->TopicList(gz_topics);
 
   for (const auto & gz_topic : gz_topics) {
+    // Skip topics that match any of the exclude patterns
+    if (is_excluded_from_automated_bridging(gz_topic)) {
+      continue;
+    }
+
     // Skip topics that are already bridged
     bool already_bridged = false;
     for (const auto & handle : handles_) {
@@ -435,6 +454,11 @@ void RosGzBridge::create_automated_bridges()
   }
 
   for (const auto & gz_service : gz_services) {
+    // Skip services that match any of the exclude patterns
+    if (is_excluded_from_automated_bridging(gz_service)) {
+      continue;
+    }
+
     // Skip services that are already bridged
     bool already_bridged = false;
     for (const auto & service : services_) {
@@ -480,6 +504,16 @@ void RosGzBridge::create_automated_bridges()
       gz_service,
       factory);
   }
+}
+
+bool RosGzBridge::is_excluded_from_automated_bridging(const std::string & name) const
+{
+  for (const auto & pattern : automated_bridge_exclude_patterns_) {
+    if (std::regex_match(name, pattern)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool RosGzBridge::get_gz_topic_info(

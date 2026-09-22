@@ -17,6 +17,7 @@
 
 #include <map>
 #include <memory>
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -86,6 +87,12 @@ protected:
   /// \brief Periodic callback to check connectivity and liveliness
   void spin();
 
+  /// \brief Check if a topic/service name matches any of the exclude patterns
+  /// for automated bridging
+  /// \param[in] name Topic/service name to check
+  /// \return True if the name matches any exclude pattern, false otherwise
+  bool is_excluded_from_automated_bridging(const std::string & name) const;
+
   /// \brief Get Gazebo topic information, including type and direction
   /// \param[in] topic_name Name of the Gazebo topic
   /// \param[out] gz_type_name Type of the Gazebo topic
@@ -153,6 +160,9 @@ protected:
 
   /// \brief Timer to control periodic callback
   rclcpp::TimerBase::SharedPtr heartbeat_timer_;
+
+  /// \brief Regex patterns to exclude topics/services from automated bridging
+  std::vector<std::regex> automated_bridge_exclude_patterns_;
 
   /// \brief Map of bridge warnings
   std::map<std::string, BridgeWarningType> bridge_warnings_;
