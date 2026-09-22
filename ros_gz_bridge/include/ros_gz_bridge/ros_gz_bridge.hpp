@@ -24,6 +24,7 @@
 #include <gz/transport/Node.hh>
 #include <rclcpp/node.hpp>
 #include "ros_gz_bridge/bridge_config.hpp"
+#include "ros_gz_bridge/visibility_control.hpp"
 
 namespace ros_gz_bridge
 {
@@ -55,7 +56,7 @@ class BridgeHandle;
 class ServiceFactoryInterface;
 
 /// \brief Component container for the ROS-GZ Bridge
-class RosGzBridge : public rclcpp::Node
+class ROS_GZ_BRIDGE_VISIBLE RosGzBridge : public rclcpp::Node
 {
 public:
   /// \brief Constructor
