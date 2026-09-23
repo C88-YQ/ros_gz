@@ -50,6 +50,9 @@ enum class BridgeWarningType
 
   /// \brief Mismatch between the detected Gazebo and ROS types.
   ROS_GZ_TYPE_MISMATCH,
+
+  /// \brief Topic/service name matches an exclude pattern
+  EXCLUDE_PATTERN_MATCHED,
 };
 
 /// Forward declarations

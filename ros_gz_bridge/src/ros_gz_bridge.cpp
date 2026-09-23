@@ -360,6 +360,8 @@ void RosGzBridge::create_automated_bridges()
   for (const auto & gz_topic : gz_topics) {
     // Skip topics that match any of the exclude patterns
     if (is_excluded_from_automated_bridging(gz_topic)) {
+      this->log_bridge_warning(
+        BridgeWarningType::EXCLUDE_PATTERN_MATCHED, gz_topic, "topic");
       continue;
     }
 
@@ -448,6 +450,8 @@ void RosGzBridge::create_automated_bridges()
   for (const auto & gz_service : gz_services) {
     // Skip services that match any of the exclude patterns
     if (is_excluded_from_automated_bridging(gz_service)) {
+      this->log_bridge_warning(
+        BridgeWarningType::EXCLUDE_PATTERN_MATCHED, gz_service, "service");
       continue;
     }
 
@@ -717,6 +721,13 @@ void RosGzBridge::log_bridge_warning(
           "Gazebo message type [%s] and ROS message type [%s].",
           resource_type.c_str(), name.c_str(),
           gz_type_name.c_str(), ros_type_name.c_str());
+        break;
+      case BridgeWarningType::EXCLUDE_PATTERN_MATCHED:
+        RCLCPP_WARN(
+          this->get_logger(),
+          "Skipping automated bridge for %s [%s] : "
+          "matches an exclusion pattern.",
+          resource_type.c_str(), name.c_str());
         break;
     }
   }
