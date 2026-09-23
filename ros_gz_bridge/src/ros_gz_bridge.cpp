@@ -46,16 +46,7 @@ RosGzBridge::RosGzBridge(const rclcpp::NodeOptions & options)
   const auto names = this->get_parameter("bridge_names").as_string_array();
   const auto exclude_patterns = this->get_parameter("automated_bridge_exclude_patterns").as_string_array();
 
-  for (const auto & pattern : exclude_patterns) {
-    try {
-      automated_bridge_exclude_patterns_.emplace_back(pattern);
-    } catch (const std::regex_error & e) {
-      RCLCPP_ERROR(
-        this->get_logger(),
-        "Invalid regex pattern '%s' in parameter 'automated_bridge_exclude_patterns': %s",
-        pattern.c_str(), e.what());
-    }
-  }
+  this->set_automated_bridge_exclude_patterns(exclude_patterns);
 
   using rclcpp::PARAMETER_STRING;
   using rclcpp::PARAMETER_NOT_SET;
@@ -503,6 +494,21 @@ void RosGzBridge::create_automated_bridges()
       gz_rep_type_name,
       gz_service,
       factory);
+  }
+}
+
+void RosGzBridge::set_automated_bridge_exclude_patterns(const std::vector<std::string> & patterns)
+{
+  automated_bridge_exclude_patterns_.clear();
+  for (const auto & pattern : patterns) {
+    try {
+      automated_bridge_exclude_patterns_.emplace_back(pattern);
+    } catch (const std::regex_error & e) {
+      RCLCPP_ERROR(
+        this->get_logger(),
+        "Invalid regex pattern '%s' in parameter 'automated_bridge_exclude_patterns': %s",
+        pattern.c_str(), e.what());
+    }
   }
 }
 

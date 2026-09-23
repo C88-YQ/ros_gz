@@ -85,6 +85,10 @@ public:
   /// automatically
   void create_automated_bridges();
 
+  /// \brief Set regex patterns to exclude topics/services from automated bridging
+  /// \param[in] patterns List of regex patterns to exclude topics/services from automated bridging
+  void set_automated_bridge_exclude_patterns(const std::vector<std::string> & patterns);
+
 protected:
   /// \brief Periodic callback to check connectivity and liveliness
   void spin();
