@@ -46,8 +46,6 @@ public:
   {
   }
 
-  using RosGzBridge::create_automated_bridges;
-
   size_t topic_bridge_count() const
   {
     return this->handles_.size();

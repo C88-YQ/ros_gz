@@ -81,6 +81,8 @@ public:
     const std::string & service_name,
     std::shared_ptr<ServiceFactoryInterface> factory = nullptr);
 
+  /// \brief Discover compatible ROS and Gazebo endpoints and create non-excluded bridges
+  /// automatically
   void create_automated_bridges();
 
 protected:
