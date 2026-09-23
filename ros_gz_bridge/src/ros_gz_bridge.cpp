@@ -44,7 +44,8 @@ RosGzBridge::RosGzBridge(const rclcpp::NodeOptions & options)
   this->declare_parameter("enable_automated_bridge", false);
   this->declare_parameter("automated_bridge_exclude_patterns", std::vector<std::string>());
   const auto names = this->get_parameter("bridge_names").as_string_array();
-  const auto exclude_patterns = this->get_parameter("automated_bridge_exclude_patterns").as_string_array();
+  const auto exclude_patterns =
+    this->get_parameter("automated_bridge_exclude_patterns").as_string_array();
 
   this->set_automated_bridge_exclude_patterns(exclude_patterns);
 

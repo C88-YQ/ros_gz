@@ -687,7 +687,7 @@ TEST_F(AutomatedBridgeTest, ExcludePatterns)
 
   this->bridge_->set_automated_bridge_exclude_patterns(
     {".*excluded.*"});
-  
+
   GzPublisher<gz::msgs::StringMsg> excluded_gz_pub(this->gz_node_, excluded_topic);
   GzPublisher<gz::msgs::StringMsg> included_gz_pub(this->gz_node_, included_topic);
 
